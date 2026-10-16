@@ -1,0 +1,71 @@
+name: Build and release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'tools/make-sample-data.ps1'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      VERSION: 1.0.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build
+        run: dotnet build DiskSpaceManager.slnx -c Release -p:Version=${{ env.VERSION }}
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          $apps = 'src/DiskSpaceManager.App', 'src/DiskSpaceManager.Monitor'
+          foreach ($app in $apps) {
+            # Small: needs the .NET 8 Desktop Runtime
+            dotnet publish $app -c Release -r win-x64 --self-contained false `
+              -p:PublishSingleFile=true -p:Version=$env:VERSION -o out/fd
+            if ($LASTEXITCODE) { exit 1 }
+            # Standalone: runtime bundled in
+            dotnet publish $app -c Release -r win-x64 --self-contained true `
+              -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+              -p:EnableCompressionInSingleFile=true -p:Version=$env:VERSION -o out/sc
+            if ($LASTEXITCODE) { exit 1 }
+          }
+          Remove-Item out/*/*.pdb -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item README.md out/fd
+          Copy-Item README.md out/sc
+          Compress-Archive out/fd/* dist/DiskSpaceManager-win-x64.zip
+          Compress-Archive out/sc/* dist/DiskSpaceManager-win-x64-standalone.zip
+          Get-ChildItem dist | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DiskSpaceManager-${{ env.VERSION }}
+          path: dist/*.zip
+
+      - name: Publish GitHub release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create "v$env:VERSION" dist/*.zip `
+            --title "Disk Space Manager $env:VERSION" `
+            --generate-notes --latest --target $env:GITHUB_SHA

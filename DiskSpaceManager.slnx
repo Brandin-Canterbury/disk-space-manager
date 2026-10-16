@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DiskSpaceManager.App/DiskSpaceManager.App.csproj" />
+    <Project Path="src/DiskSpaceManager.Core/DiskSpaceManager.Core.csproj" />
+    <Project Path="src/DiskSpaceManager.Monitor/DiskSpaceManager.Monitor.csproj" />
+  </Folder>
+</Solution>
